@@ -26,10 +26,13 @@ import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.api.AddApiReqVo;
 import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.api.ApiPredicateItemVo;
 import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.api.UpdateApiReqVo;
 import com.alibaba.csp.sentinel.dashboard.repository.gateway.InMemApiDefinitionStore;
+import com.alibaba.csp.sentinel.dashboard.rule.DynamicRuleProvider;
+import com.alibaba.csp.sentinel.dashboard.rule.DynamicRulePublisher;
 import com.alibaba.csp.sentinel.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -56,6 +59,13 @@ public class GatewayApiController {
     @Autowired
     private SentinelApiClient sentinelApiClient;
 
+    @Autowired
+    @Qualifier("gatewayApiRuleNacosProvider")
+    private DynamicRuleProvider<List<ApiDefinitionEntity>> apiProvider;
+    @Autowired
+    @Qualifier("gatewayApiRuleNacosPublisher")
+    private DynamicRulePublisher<List<ApiDefinitionEntity>> apiPublisher;
+
     @GetMapping("/list.json")
     @AuthAction(AuthService.PrivilegeType.READ_RULE)
     public Result<List<ApiDefinitionEntity>> queryApis(String app, String ip, Integer port) {
@@ -71,7 +81,8 @@ public class GatewayApiController {
         }
 
         try {
-            List<ApiDefinitionEntity> apis = sentinelApiClient.fetchApis(app, ip, port).get();
+//            List<ApiDefinitionEntity> apis = sentinelApiClient.fetchApis(app, ip, port).get();
+            List<ApiDefinitionEntity> apis = apiProvider.getRules(app);
             repository.saveAll(apis);
             return Result.ofSuccess(apis);
         } catch (Throwable throwable) {
@@ -156,8 +167,13 @@ public class GatewayApiController {
             return Result.ofThrowable(-1, throwable);
         }
 
-        if (!publishApis(app, ip, port)) {
-            logger.warn("publish gateway apis fail after add");
+//        if (!publishApis(app, ip, port)) {
+//            logger.warn("publish gateway apis fail after add");
+//        }
+        try {
+            publishApis(app);
+        } catch (Exception e) {
+            logger.warn("publish gateway apis fail after add: {}", e.getMessage());
         }
 
         return Result.ofSuccess(entity);
@@ -219,8 +235,13 @@ public class GatewayApiController {
             return Result.ofThrowable(-1, throwable);
         }
 
-        if (!publishApis(app, entity.getIp(), entity.getPort())) {
-            logger.warn("publish gateway apis fail after update");
+//        if (!publishApis(app, entity.getIp(), entity.getPort())) {
+//            logger.warn("publish gateway apis fail after update");
+//        }
+        try {
+            publishApis(app);
+        } catch (Exception e) {
+            logger.warn("publish gateway apis fail after update: {}", e.getMessage());
         }
 
         return Result.ofSuccess(entity);
@@ -246,15 +267,25 @@ public class GatewayApiController {
             return Result.ofThrowable(-1, throwable);
         }
 
-        if (!publishApis(oldEntity.getApp(), oldEntity.getIp(), oldEntity.getPort())) {
-            logger.warn("publish gateway apis fail after delete");
+//        if (!publishApis(oldEntity.getApp(), oldEntity.getIp(), oldEntity.getPort())) {
+//            logger.warn("publish gateway apis fail after delete");
+//        }
+        try {
+            publishApis(oldEntity.getApp());
+        } catch (Exception e) {
+            logger.warn("publish gateway apis fail after delete: {}", e.getMessage());
         }
 
         return Result.ofSuccess(id);
     }
 
-    private boolean publishApis(String app, String ip, Integer port) {
-        List<ApiDefinitionEntity> apis = repository.findAllByMachine(MachineInfo.of(app, ip, port));
-        return sentinelApiClient.modifyApis(app, ip, port, apis);
+//    private boolean publishApis(String app, String ip, Integer port) {
+//        List<ApiDefinitionEntity> apis = repository.findAllByMachine(MachineInfo.of(app, ip, port));
+//        return sentinelApiClient.modifyApis(app, ip, port, apis);
+//    }
+
+    private void publishApis(String app) throws Exception {
+        List<ApiDefinitionEntity> rules = repository.findAllByApp(app);
+        apiPublisher.publish(app,rules);
     }
 }
